@@ -2,14 +2,14 @@ import base64
 import json
 import os
 
-import doubleratchet
-
+import pytest
 from nacl.bindings.crypto_scalarmult import crypto_scalarmult
-
 from nacl.public import PrivateKey as Curve25519DecryptionKey
 from nacl.public import PublicKey  as Curve25519EncryptionKey
 
-import pytest
+import doubleratchet
+from doubleratchet.exceptions import MissingKeyException
+
 
 class SendReceiveChain(doubleratchet.kdfchains.ConstKDFChain):
     def __init__(self, key):
@@ -22,12 +22,14 @@ class SendReceiveChain(doubleratchet.kdfchains.ConstKDFChain):
             key
         )
 
+
 class SymmetricKeyRatchet(doubleratchet.ratchets.SymmetricKeyRatchet):
     def __init__(self):
         super(SymmetricKeyRatchet, self).__init__(
             SendReceiveChain,
             SendReceiveChain
         )
+
 
 class RootChain(doubleratchet.kdfchains.KDFChain):
     def __init__(self):
@@ -39,19 +41,20 @@ class RootChain(doubleratchet.kdfchains.KDFChain):
             "I am a root key!".encode("US-ASCII")
         )
 
+
 class KeyPair(doubleratchet.KeyPair):
-    def __init__(self, priv = None, pub = None):
+    def __init__(self, priv=None, pub=None):
         wrap = self.__class__.__wrap
 
         self.__priv = wrap(priv, Curve25519DecryptionKey)
-        self.__pub  = wrap(pub,  Curve25519EncryptionKey)
+        self.__pub = wrap(pub, Curve25519EncryptionKey)
 
         if not self.__priv == None and self.__pub == None:
             self.__pub = self.__priv.public_key
 
     @classmethod
     def generate(cls):
-        return cls(priv = Curve25519DecryptionKey.generate())
+        return cls(priv=Curve25519DecryptionKey.generate())
 
     @staticmethod
     def __wrap(key, cls):
@@ -71,9 +74,9 @@ class KeyPair(doubleratchet.KeyPair):
         priv = None if priv == None else base64.b64encode(bytes(priv)).decode("US-ASCII")
 
         return {
-            "super" : super(KeyPair, self).serialize(),
-            "pub"   : pub,
-            "priv"  : priv
+            "super": super(KeyPair, self).serialize(),
+            "pub": pub,
+            "priv": priv
         }
 
     @classmethod
@@ -122,8 +125,9 @@ class KeyPair(doubleratchet.KeyPair):
             other.pub
         )
 
+
 class DR(doubleratchet.ratchets.DoubleRatchet):
-    def __init__(self, own_key = None, other_pub = None):
+    def __init__(self, own_key=None, other_pub=None):
         super(DR, self).__init__(
             doubleratchet.recommended.CBCHMACAEAD(
                 "SHA-512",
@@ -141,11 +145,12 @@ class DR(doubleratchet.ratchets.DoubleRatchet):
     def _makeAD(self, header, ad):
         return ad
 
+
 def test_messages():
     alice_key = KeyPair.generate()
 
-    alice_ratchet = DR(own_key   = alice_key)
-    bob_ratchet   = DR(other_pub = alice_key.pub)
+    alice_ratchet = DR(own_key=alice_key)
+    bob_ratchet = DR(other_pub=alice_key.pub)
 
     assert not alice_ratchet.canSend()
     assert bob_ratchet.canSend()
@@ -166,18 +171,20 @@ def test_messages():
     assert alice_ratchet.canSend()
     assert bob_ratchet.canSend()
 
+
 def test_not_synced():
-    alice_key     = KeyPair.generate()
-    alice_ratchet = DR(own_key = alice_key)
+    alice_key = KeyPair.generate()
+    alice_ratchet = DR(own_key=alice_key)
 
     with pytest.raises(doubleratchet.exceptions.NotInitializedException):
         alice_ratchet.encryptMessage("I will fail!".encode("US-ASCII"))
 
+
 def test_skipped_message():
     alice_key = KeyPair.generate()
-    
-    alice_ratchet = DR(own_key   = alice_key)
-    bob_ratchet   = DR(other_pub = alice_key.pub)
+
+    alice_ratchet = DR(own_key=alice_key)
+    bob_ratchet = DR(other_pub=alice_key.pub)
 
     for _ in range(100):
         message_a = os.urandom(100)
@@ -198,11 +205,12 @@ def test_skipped_message():
         assert bob_ratchet.decryptMessage(c_b["ciphertext"], c_b["header"]) == message_b
         assert bob_ratchet.decryptMessage(c_a["ciphertext"], c_a["header"]) == message_a
 
+
 def test_too_many_skipped_messages():
     alice_key = KeyPair.generate()
-    
-    alice_ratchet = DR(own_key   = alice_key)
-    bob_ratchet   = DR(other_pub = alice_key.pub)
+
+    alice_ratchet = DR(own_key=alice_key)
+    bob_ratchet = DR(other_pub=alice_key.pub)
 
     # Skip six messages (five skipped messages are allowed)
     for _ in range(6):
@@ -214,11 +222,12 @@ def test_too_many_skipped_messages():
     with pytest.raises(doubleratchet.exceptions.TooManySavedMessageKeysException):
         alice_ratchet.decryptMessage(c["ciphertext"], c["header"])
 
+
 def test_serialization():
     alice_key = KeyPair.generate()
-    
-    alice_ratchet = DR(own_key   = alice_key)
-    bob_ratchet   = DR(other_pub = alice_key.pub)
+
+    alice_ratchet = DR(own_key=alice_key)
+    bob_ratchet = DR(other_pub=alice_key.pub)
 
     for _ in range(100):
         message = os.urandom(100)
@@ -234,13 +243,13 @@ def test_serialization():
         assert bob_ratchet.decryptMessage(c["ciphertext"], c["header"]) == message
 
     alice_ratchet_serialized = json.dumps(alice_ratchet.serialize())
-    bob_ratchet_serialized   = json.dumps(bob_ratchet.serialize())
+    bob_ratchet_serialized = json.dumps(bob_ratchet.serialize())
 
     print(alice_ratchet_serialized)
     print(bob_ratchet_serialized)
 
     alice_ratchet = DR.fromSerialized(json.loads(alice_ratchet_serialized))
-    bob_ratchet   = DR.fromSerialized(json.loads(bob_ratchet_serialized))
+    bob_ratchet = DR.fromSerialized(json.loads(bob_ratchet_serialized))
 
     for _ in range(100):
         message = os.urandom(100)
