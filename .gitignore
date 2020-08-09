@@ -9,3 +9,6 @@ docs/_build/
 
 install.sh
 Makefile
+
+env/
+.idea/
